@@ -2,6 +2,7 @@
 
 https://github.com/RedAIGC/Flux-version-LayerDiffuse
 
+![image](workflow.png)
 
 ## Install
 
@@ -9,13 +10,13 @@ https://github.com/RedAIGC/Flux-version-LayerDiffuse
 
 - 手动安装：
     1. `cd custom_nodes`
-    2. `git clone https://github.com/leeguandong/ComfyUI_Moonlight.git`
+    2. `git clone https://github.com/leeguandong/ComfyUI_FluxLayerDiffuse.git`
     3. 重启 ComfyUI
 
 
 ## Stars
 
-[![Star History Chart](https://api.star-history.com/svg?repos=leeguandong/ComfyUI_Moonlight&type=Date)](https://star-history.com/#leeguandong/ComfyUI_Moonlight&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=leeguandong/ComfyUI_FluxLayerDiffuse&type=Date)](https://star-history.com/#leeguandong/ComfyUI_FluxLayerDiffuse&Date)
 
 
 
