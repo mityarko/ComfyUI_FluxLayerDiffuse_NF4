@@ -1,2 +1,23 @@
-# ComfyUI_FluxLayerDiffuse
-小红书的flux版本的透明图生成（layerdiffuse），支持文生图和图生图
+# ComfyUI nodes to use FluxLayerDiffuse
+
+https://github.com/RedAIGC/Flux-version-LayerDiffuse
+
+
+## Install
+
+- 推荐使用管理器 ComfyUI Manager 安装（On the Way）
+
+- 手动安装：
+    1. `cd custom_nodes`
+    2. `git clone https://github.com/leeguandong/ComfyUI_Moonlight.git`
+    3. 重启 ComfyUI
+
+
+## Stars
+
+[![Star History Chart](https://api.star-history.com/svg?repos=leeguandong/ComfyUI_Moonlight&type=Date)](https://star-history.com/#leeguandong/ComfyUI_Moonlight&Date)
+
+
+
+
+
