@@ -52,7 +52,7 @@ class FluxTransparentModelLoader:
     FUNCTION = "load_model"
     CATEGORY = "flux_transparent"
 
-    def load_model(self, ckpt_path, load_local_model, load_t2i, load_i2i, *args, **kwargs):
+    def load_model(self, model, load_local_model, load_t2i, load_i2i, *args, **kwargs):
         _DTYPE = torch.bfloat16
         device = mm.get_torch_device()
 
@@ -63,7 +63,7 @@ class FluxTransparentModelLoader:
         else:
             vae_path = hf_hub_download(repo_id="RedAIGC/Flux-version-LayerDiffuse", filename="TransparentVAE.pth")
             lora_path = hf_hub_download(repo_id="RedAIGC/Flux-version-LayerDiffuse", filename="layerlora.safetensors")
-            flux_path = ckpt_path
+            flux_path = model
 
         # 加载 TransparentVAE
         trans_vae = TransparentVAE(None, _DTYPE)
@@ -74,13 +74,13 @@ class FluxTransparentModelLoader:
 
         # 加载 T2I 模型
         if load_t2i:
-            pipe_t2i = FluxPipeline.from_pretrained(ckpt_path, torch_dtype=_DTYPE).to(device)
+            pipe_t2i = FluxPipeline.from_pretrained(flux_path, torch_dtype=_DTYPE).to(device)
             pipe_t2i.load_lora_weights(lora_path)
             model_dict["pipe_t2i"] = pipe_t2i
 
         # 加载 I2I 模型
         if load_i2i:
-            pipe_i2i = FluxImg2ImgPipeline.from_pretrained(ckpt_path, torch_dtype=_DTYPE).to(device)
+            pipe_i2i = FluxImg2ImgPipeline.from_pretrained(flux_path, torch_dtype=_DTYPE).to(device)
             pipe_i2i.load_lora_weights(lora_path)
             model_dict["pipe_i2i"] = pipe_i2i
 
