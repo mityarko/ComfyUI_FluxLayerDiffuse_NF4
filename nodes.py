@@ -182,13 +182,27 @@ class FluxTransparentT2I:
         latents = pipe._unpack_latents(latents, height, width, pipe.vae_scale_factor)
         latents = (latents / pipe.vae.config.scaling_factor) + pipe.vae.config.shift_factor
 
+        # Decode and Post-process
         with torch.no_grad():
             _, x = trans_vae.decode(latents)
-
         x = x.clamp(0, 1)
+
         x = x.permute(0, 2, 3, 1)
-        img = Image.fromarray((x * 255).float().cpu().numpy().astype(np.uint8)[0])
-        return (convert_preview_image([img]),)
+
+        if x.shape[-1] == 4:
+            first_pixel = x[0, 0, 0, :]  # [C0, C1, C2, C3]
+            if torch.abs(first_pixel[1] - 1.0) < 0.1 and torch.abs(first_pixel[0]) < 0.1 and torch.abs(first_pixel[2]) < 0.1:
+                print("Decoder output has 4 channels, detected [R, G, B, A] order (background is green).")
+            elif torch.abs(first_pixel[2] - 1.0) < 0.1 and torch.abs(first_pixel[1]) < 0.1 and torch.abs(first_pixel[3]) < 0.1:
+                print("Decoder output has 4 channels, detected [A, R, G, B] order. Reordering to [R, G, B, A].")
+                x = x[..., [1, 2, 3, 0]]  # Reorder: [A, R, G, B] -> [R, G, B, A]
+            else:
+                print("Warning: Could not determine channel order based on background color. Assuming [R, G, B, A].")
+                print(f"First pixel values: {first_pixel}")
+
+        x = x.to(dtype=torch.float32)
+        print(f"Final output tensor shape: {x.shape}, dtype: {x.dtype}")
+        return (x,)
 
 
 # I2I 节点
@@ -320,19 +334,10 @@ class FluxTransparentI2I:
             _, x = trans_vae.decode(latents)
         x = x.clamp(0, 1)
 
-        print(f"Decoder output shape: {x.shape}")
-        print(f"Decoder output first pixel: {x[0, :, 0, 0]}")
-
         x = x.permute(0, 2, 3, 1)
-        print(f"Output shape after permute: {x.shape}")
 
-        # Reorder channels based on expected background color (green)
         if x.shape[-1] == 4:
-            # The first pixel should be the background, which is green in the input image
             first_pixel = x[0, 0, 0, :]  # [C0, C1, C2, C3]
-            # In the input image, the background is green (RGB: [0, 255, 0]), so after normalization, expect [0, 1, 0]
-            # If the order is [R, G, B, A], the first pixel should be approximately [0, 1, 0, A]
-            # If the order is [A, R, G, B], the first pixel would be [A, 0, 1, 0]
             if torch.abs(first_pixel[1] - 1.0) < 0.1 and torch.abs(first_pixel[0]) < 0.1 and torch.abs(first_pixel[2]) < 0.1:
                 print("Decoder output has 4 channels, detected [R, G, B, A] order (background is green).")
             elif torch.abs(first_pixel[2] - 1.0) < 0.1 and torch.abs(first_pixel[1]) < 0.1 and torch.abs(first_pixel[3]) < 0.1:
