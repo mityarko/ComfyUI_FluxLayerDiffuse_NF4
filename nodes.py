@@ -10,6 +10,8 @@ from .lib_layerdiffuse.vae import TransparentVAE, pad_rgb
 from huggingface_hub import hf_hub_download
 import torch.nn.functional as F
 
+from diffusers import DiffusionPipeline, FluxControlPipeline, FluxTransformer2DModel
+from transformers import T5EncoderModel
 
 # 工具函数
 def tensor2pil(image):
@@ -46,6 +48,8 @@ class FluxTransparentModelLoader:
                 "local_flux_path": ("STRING", {"default": "black-forest-labs/FLUX.1-dev"}),
                 "local_vae_path": ("STRING", {"default": "./models/TransparentVAE.pth"}),
                 "local_lora_path": ("STRING", {"default": "./models/layerlora.safetensors"}),
+                "use_nf4": ("BOOLEAN", {"default": False}),
+                "nf4_path": ("STRING", {"default": "models/diffusion_models/FLUX.1-dev_Quantized_nf4", "tooltip": "GGUF模型路径，如果使用GGUF模型则需填写"}),
             }
         }
 
@@ -57,6 +61,9 @@ class FluxTransparentModelLoader:
     def load_model(self, model, load_local_model, load_t2i, load_i2i, *args, **kwargs):
         _DTYPE = torch.bfloat16
         device = mm.get_torch_device()
+
+        use_nf4 = kwargs.get("use_nf4")
+        nf4_path = kwargs.get("nf4_path")
 
         if load_local_model:
             vae_path = kwargs.get("local_vae_path", "./models/TransparentVAE.pth")
@@ -70,32 +77,76 @@ class FluxTransparentModelLoader:
         base_vae = None
         pipe_t2i = None
         pipe_i2i = None
+        
+        # Determine if we need to load a T2I pipeline.
+        # We load it if requested, or if neither T2I nor I2I is requested (as a default for VAE).
+        should_load_t2i = load_t2i or not load_i2i
 
-        # Step 1: Load at least one base FLUX pipeline to get the VAE component
-        # Prioritize loading the one requested, but load T2I if neither is specified,
-        # as we absolutely need the VAE.
-        try:
-            if load_t2i or not load_i2i: # Load T2I if requested OR if neither is requested
-                print(f"Loading base FLUX T2I pipeline from: {flux_path}")
-                # Potentially add variant="bf16" or fp16 if supported and desired
-                pipe_t2i = FluxPipeline.from_pretrained(flux_path, torch_dtype=_DTYPE)
-                base_vae = pipe_t2i.vae
-                print("Base VAE extracted from T2I pipeline.")
-                # Move pipe to device later, only if load_t2i is True
-            elif load_i2i: # Only load I2I if specifically requested and T2I wasn't
-                print(f"Loading base FLUX I2I pipeline from: {flux_path}")
-                pipe_i2i = FluxImg2ImgPipeline.from_pretrained(flux_path, torch_dtype=_DTYPE)
+        if should_load_t2i:
+            if use_nf4 and nf4_path:
+                # --- OPTIMIZED NF4 T2I PATH ---
+                print("Using NF4 (four bit) quantized model for T2I.")
+                
+                # Load quantized components first to save memory. They are loaded to CPU.
+                print(f"Loading NF4 transformer from: {nf4_path}/transformer")
+                transformer = FluxTransformer2DModel.from_pretrained(
+                    nf4_path, subfolder="transformer", torch_dtype=_DTYPE
+                )
+                print(f"Loading NF4 text_encoder_2 from: {nf4_path}/text_encoder_2")
+                text_encoder_2 = T5EncoderModel.from_pretrained(
+                    nf4_path, subfolder="text_encoder_2", torch_dtype=_DTYPE
+                )
+
+                # Load the rest of the pipeline, passing the pre-loaded quantized components.
+                # This avoids loading the large full-precision models from flux_path.
+                print(f"Loading remaining pipeline components from: {flux_path}")
+                try:
+                    pipe_t2i = FluxPipeline.from_pretrained(
+                        flux_path,
+                        transformer=transformer,
+                        text_encoder_2=text_encoder_2,
+                        torch_dtype=_DTYPE,
+                        low_cpu_mem_usage=True,
+                    )
+                except (ImportError, TypeError) as e:
+                    print(f"Warning: Could not load with low_cpu_mem_usage: {e}. Loading without it.")
+                    pipe_t2i = FluxPipeline.from_pretrained(
+                        flux_path,
+                        transformer=transformer,
+                        text_encoder_2=text_encoder_2,
+                        torch_dtype=_DTYPE,
+                    )
+            else:
+                # --- FULL PRECISION T2I PATH ---
+                if use_nf4 and not nf4_path:
+                    print("Warning: use_nf4 is True, but nf4_path is not provided. Loading full T2I model.")
+                print(f"Loading full-precision T2I pipeline from: {flux_path}")
+                try:
+                    pipe_t2i = FluxPipeline.from_pretrained(
+                        flux_path, torch_dtype=_DTYPE, low_cpu_mem_usage=True
+                    )
+                except (ImportError, TypeError) as e:
+                    print(f"Warning: Could not load with low_cpu_mem_usage: {e}. Loading without it.")
+                    pipe_t2i = FluxPipeline.from_pretrained(flux_path, torch_dtype=_DTYPE)
+            
+            base_vae = pipe_t2i.vae
+            print("Base VAE extracted from T2I pipeline.")
+
+        # Load I2I pipeline if requested
+        if load_i2i:
+            print(f"Loading FLUX I2I pipeline from: {flux_path}")
+            # Note: NF4 optimization is not applied to I2I pipeline in this version.
+            pipe_i2i = FluxImg2ImgPipeline.from_pretrained(flux_path, torch_dtype=_DTYPE)
+            if base_vae is None:
                 base_vae = pipe_i2i.vae
                 print("Base VAE extracted from I2I pipeline.")
-                # Move pipe to device later, only if load_i2i is True
-        except Exception as e:
-             print(f"Error loading base FLUX pipeline from {flux_path}: {e}")
-             raise e # Re-raise the error
 
         if base_vae is None:
-             raise ValueError("Could not load or extract the base VAE from the FLUX model. Ensure the path/name is correct.")
-             print("Initializing Transparent VAE...")
-        # Pass the loaded base_vae object here!
+            raise ValueError("Could not load or extract the base VAE from the FLUX model. Ensure the path/name is correct.")
+
+        # --- Transparent VAE Loading ---
+        print("Initializing Transparent VAE...")
+        # The base_vae is on CPU at this point. We move the whole trans_vae to device later.
         trans_vae = TransparentVAE(sd_vae=base_vae, dtype=_DTYPE)
         print(f"Loading Transparent VAE state dict from: {vae_path}")
         state_dict = comfy.utils.load_torch_file(vae_path) # Use ComfyUI's safe loader
@@ -105,11 +156,9 @@ class FluxTransparentModelLoader:
 
         model_dict = {"trans_vae": trans_vae}
 
+        # --- Finalize Pipelines ---
+        # Load LoRAs and move to device only for the pipelines that are actually needed.
         if load_t2i:
-            if pipe_t2i is None: # Should only happen if only I2I was loaded initially
-                 print(f"Loading missing FLUX T2I pipeline from: {flux_path}")
-                 pipe_t2i = FluxPipeline.from_pretrained(flux_path, torch_dtype=_DTYPE)
-
             print(f"Loading T2I LoRA weights from: {lora_path}")
             pipe_t2i.load_lora_weights(lora_path)
             pipe_t2i.to(device) # Move the full pipeline to the device
@@ -123,10 +172,6 @@ class FluxTransparentModelLoader:
              mm.soft_empty_cache()
 
         if load_i2i:
-            if pipe_i2i is None: # If not loaded initially
-                 print(f"Loading FLUX I2I pipeline from: {flux_path}")
-                 pipe_i2i = FluxImg2ImgPipeline.from_pretrained(flux_path, torch_dtype=_DTYPE)
-
             print(f"Loading I2I LoRA weights from: {lora_path}")
             pipe_i2i.load_lora_weights(lora_path)
             pipe_i2i.to(device) # Move the full pipeline to the device
@@ -138,8 +183,6 @@ class FluxTransparentModelLoader:
              del pipe_i2i
              pipe_i2i = None
              mm.soft_empty_cache()
-
-        # --- FIX ENDS HERE ---
 
         return (model_dict,)
 
