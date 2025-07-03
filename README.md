@@ -1,24 +1,19 @@
-# ComfyUI nodes to use FluxLayerDiffuse
+# ComfyUI-FluxLayerDiffuse-NF4
 
 https://github.com/RedAIGC/Flux-version-LayerDiffuse
 
 ![image](workflow.png)
 
-## Install
+## Download models
+```bash
+huggingface-cli download black-forest-labs/FLUX.1-dev --local-dir models/checkpoints/FLUX.1-dev --exclude "flux1-dev.safetensors"
 
-- 推荐使用管理器 ComfyUI Manager 安装（On the Way）
+huggingface-cli download priyesh17/FLUX.1-dev_Quantized_nf4 --local-dir models/checkpoints/FLUX.1-dev_Quantized_nf4
 
-- 手动安装：
-    1. `cd custom_nodes`
-    2. `git clone https://github.com/leeguandong/ComfyUI_FluxLayerDiffuse.git`
-    3. 重启 ComfyUI
+wget -O models/vae/TransparentVAE.pth "https://huggingface.co/RedAIGC/Flux-version-LayerDiffuse/resolve/main/TransparentVAE.pth?download=true"
 
+wget -O models/loras/layerlora.safetensors "https://huggingface.co/RedAIGC/Flux-version-LayerDiffuse/resolve/main/layerlora.safetensors?download=true"
+```
 
-## Stars
-
-[![Star History Chart](https://api.star-history.com/svg?repos=leeguandong/ComfyUI_FluxLayerDiffuse&type=Date)](https://star-history.com/#leeguandong/ComfyUI_FluxLayerDiffuse&Date)
-
-
-
-
-
+## Important
+Currently, only **T2I mode** is supported!

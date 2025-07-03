@@ -77,66 +77,64 @@ class FluxTransparentModelLoader:
         base_vae = None
         pipe_t2i = None
         pipe_i2i = None
-        
+
+        # --- NF4 Component Loading (if enabled) ---
+        nf4_components = {}
+        if use_nf4 and nf4_path:
+            print("Using NF4 (four bit) quantized model.")
+            # Load quantized components first to save memory. They are loaded to CPU.
+            print(f"Loading NF4 transformer from: {nf4_path}/transformer")
+            transformer = FluxTransformer2DModel.from_pretrained(
+                nf4_path, subfolder="transformer", torch_dtype=_DTYPE
+            )
+            print(f"Loading NF4 text_encoder_2 from: {nf4_path}/text_encoder_2")
+            text_encoder_2 = T5EncoderModel.from_pretrained(
+                nf4_path, subfolder="text_encoder_2", torch_dtype=_DTYPE
+            )
+            nf4_components = {"transformer": transformer, "text_encoder_2": text_encoder_2}
+        elif use_nf4 and not nf4_path:
+            print("Warning: use_nf4 is True, but nf4_path is not provided. Loading full precision models.")
+
         # Determine if we need to load a T2I pipeline.
         # We load it if requested, or if neither T2I nor I2I is requested (as a default for VAE).
         should_load_t2i = load_t2i or not load_i2i
 
         if should_load_t2i:
-            if use_nf4 and nf4_path:
-                # --- OPTIMIZED NF4 T2I PATH ---
-                print("Using NF4 (four bit) quantized model for T2I.")
-                
-                # Load quantized components first to save memory. They are loaded to CPU.
-                print(f"Loading NF4 transformer from: {nf4_path}/transformer")
-                transformer = FluxTransformer2DModel.from_pretrained(
-                    nf4_path, subfolder="transformer", torch_dtype=_DTYPE
+            print(f"Loading T2I pipeline from: {flux_path}")
+            if nf4_components:
+                print("-> with NF4 components.")
+            try:
+                pipe_t2i = FluxPipeline.from_pretrained(
+                    flux_path,
+                    **nf4_components,
+                    torch_dtype=_DTYPE,
+                    low_cpu_mem_usage=True,
                 )
-                print(f"Loading NF4 text_encoder_2 from: {nf4_path}/text_encoder_2")
-                text_encoder_2 = T5EncoderModel.from_pretrained(
-                    nf4_path, subfolder="text_encoder_2", torch_dtype=_DTYPE
+            except (ImportError, TypeError) as e:
+                print(f"Warning: Could not load with low_cpu_mem_usage: {e}. Loading without it.")
+                pipe_t2i = FluxPipeline.from_pretrained(
+                    flux_path, **nf4_components, torch_dtype=_DTYPE
                 )
-
-                # Load the rest of the pipeline, passing the pre-loaded quantized components.
-                # This avoids loading the large full-precision models from flux_path.
-                print(f"Loading remaining pipeline components from: {flux_path}")
-                try:
-                    pipe_t2i = FluxPipeline.from_pretrained(
-                        flux_path,
-                        transformer=transformer,
-                        text_encoder_2=text_encoder_2,
-                        torch_dtype=_DTYPE,
-                        low_cpu_mem_usage=True,
-                    )
-                except (ImportError, TypeError) as e:
-                    print(f"Warning: Could not load with low_cpu_mem_usage: {e}. Loading without it.")
-                    pipe_t2i = FluxPipeline.from_pretrained(
-                        flux_path,
-                        transformer=transformer,
-                        text_encoder_2=text_encoder_2,
-                        torch_dtype=_DTYPE,
-                    )
-            else:
-                # --- FULL PRECISION T2I PATH ---
-                if use_nf4 and not nf4_path:
-                    print("Warning: use_nf4 is True, but nf4_path is not provided. Loading full T2I model.")
-                print(f"Loading full-precision T2I pipeline from: {flux_path}")
-                try:
-                    pipe_t2i = FluxPipeline.from_pretrained(
-                        flux_path, torch_dtype=_DTYPE, low_cpu_mem_usage=True
-                    )
-                except (ImportError, TypeError) as e:
-                    print(f"Warning: Could not load with low_cpu_mem_usage: {e}. Loading without it.")
-                    pipe_t2i = FluxPipeline.from_pretrained(flux_path, torch_dtype=_DTYPE)
-            
             base_vae = pipe_t2i.vae
             print("Base VAE extracted from T2I pipeline.")
 
         # Load I2I pipeline if requested
         if load_i2i:
             print(f"Loading FLUX I2I pipeline from: {flux_path}")
-            # Note: NF4 optimization is not applied to I2I pipeline in this version.
-            pipe_i2i = FluxImg2ImgPipeline.from_pretrained(flux_path, torch_dtype=_DTYPE)
+            if nf4_components:
+                print("-> with NF4 components.")
+            try:
+                pipe_i2i = FluxImg2ImgPipeline.from_pretrained(
+                    flux_path,
+                    **nf4_components,
+                    torch_dtype=_DTYPE,
+                    low_cpu_mem_usage=True,
+                )
+            except (ImportError, TypeError) as e:
+                print(f"Warning: Could not load with low_cpu_mem_usage: {e}. Loading without it.")
+                pipe_i2i = FluxImg2ImgPipeline.from_pretrained(
+                    flux_path, **nf4_components, torch_dtype=_DTYPE
+                )
             if base_vae is None:
                 base_vae = pipe_i2i.vae
                 print("Base VAE extracted from I2I pipeline.")
