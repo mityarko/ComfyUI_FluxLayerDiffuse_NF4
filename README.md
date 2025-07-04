@@ -6,7 +6,7 @@ https://github.com/RedAIGC/Flux-version-LayerDiffuse
 
 ## Download models
 ```bash
-huggingface-cli download black-forest-labs/FLUX.1-dev --local-dir models/checkpoints/FLUX.1-dev --exclude "flux1-dev.safetensors"
+huggingface-cli download camenduru/FLUX.1-dev-diffusers --local-dir models/checkpoints/FLUX.1-dev
 
 huggingface-cli download priyesh17/FLUX.1-dev_Quantized_nf4 --local-dir models/checkpoints/FLUX.1-dev_Quantized_nf4
 
